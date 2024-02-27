@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>WebXR Video Texture</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/webxr-polyfill"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three/examples/js/controls/OrbitControls.js"></script>
+
+  <!-- A-Frame itself -->
+  <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+  <!-- Pure three.js code that the A-Frame components use for location-based AR -->
+  <script type='text/javascript' src='https://raw.githack.com/AR-js-org/AR.js/master/three.js/build/ar-threex-location-only.js'></script>
+  <!-- AR.js A-Frame components -->
+  <a-scene embedded arjs>
+    <a-marker preset="hiro">
+        <a-entity
+            position="0 0 0"
+            scale="1 1 1"
+            gltf-model=oldVideo
+        ></a-entity>
+    </a-marker> 
+    <a-entity camera></a-entity>
+<script type='text/javascript' src='https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js'></script>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.121.1/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.121.1/examples/jsm/controls/OrbitControls.js';
+    import {WebXRButton} from './js/util/webxr-button.js';
+    let scene, camera, renderer, controls;
+    let xrButton = null;
+    document.addEventListener('DOMContentLoaded', init);
+
+
+
+    async function init() {
+      // Set up WebGL renderer      
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.z=0.01;
+      scene = new THREE.Scene();
+      renderer = new THREE.WebGLRenderer();
+      renderer.setPixelRatio( window.devicePixelRatio );
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableZoom = false;
+			controls.enablePan = false;
+      window.addEventListener( 'resize', onWindowResize );
+      // Set up camera
+      camera.position.set(0, 0, 5);      
+
+      // Set up video element for old video
+      let oldVideo = document.createElement('video');
+      oldVideo.loop = true;
+      oldVideo.src = 'media/video/Testvp8.webm'; // Provide your old video URL here
+      oldVideo.crossOrigin = 'anonymous';      
+      oldVideo.muted = true;
+      oldVideo.play();
+
+      // Set up video texture for old video
+      let oldTexture = new THREE.VideoTexture(oldVideo);
+      oldTexture.minFilter = THREE.LinearFilter;
+      oldTexture.magFilter = THREE.LinearFilter;
+      oldTexture.format = THREE.RGBAFormat;
+      let aspectRatio = oldVideo.videoWidth / oldVideo.videoHeight;
+      // Set up plane geometry with old video texture
+      let oldMaterial = new THREE.MeshBasicMaterial({ map: oldTexture });
+      let oldGeometry = new THREE.PlaneGeometry(5, 3);      
+      let oldPlane = new THREE.Mesh(oldGeometry, oldMaterial);
+      oldPlane.material.transparent = true;
+      oldPlane.position.set(0, 0, -0.5);
+      camera.position.set(0, 0, 5);
+      camera.lookAt(0, 0, -5)
+      scene.add(oldPlane);      
+      // Set up video element for camera stream
+      const video = document.createElement('video');
+      if ( navigator.mediaDevices && navigator.mediaDevices.getUserMedia ) {
+        const constraints = { video: { width: 1280, height: 720, facingMode: 'user' } };
+        navigator.mediaDevices.getUserMedia( constraints ).then( function ( stream ) 
+        {
+          // apply the stream to the video element used in the texture
+          video.srcObject = stream;
+          video.play();
+        } ).catch( function ( error ) 
+        {
+          console.error( 'Unable to access the camera/webcam.', error );
+        } );
+      } else {
+        console.error( 'MediaDevices interface not available.' );
+      }
+      const texture = new THREE.VideoTexture( video );
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+			texture.colorSpace = THREE.RGBFormat;
+      //texture.wrapS = THREE.RepeatWrapping;
+      //texture.wrapT = THREE.RepeatWrapping;
+      const geometry = new THREE.PlaneGeometry(16,9);
+			//geometry.scale(100, 100, 100);
+			const material = new THREE.MeshBasicMaterial( { map: texture } );
+      const plane = new THREE.Mesh(geometry, material);
+      video.width = 1280; // Set desired width for video
+      video.height = 720; // Set desired height for video
+      video.autoplay = true;
+      video.muted = true;
+      scene.add(plane);
+      plane.position.set(0, 0, -1);
+      scene.add(camera);
+      
+
+      // Request access to camera stream
+      
+   
+      //const plane = new THREE.Mesh(geometry, material);
+       // Set position behind the old video
+      //scene.add(plane);
+
+      // Set up resize handler
+      window.addEventListener('resize', onWindowResize);
+
+      // Set up WebXR
+      if ('xr' in navigator) {
+        navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+          if (supported) {
+            const button = document.createElement('button');
+            button.innerHTML = 'Enter VR';
+            button.addEventListener('click', startXR);
+            document.body.appendChild(button);
+          } else {
+            console.log('WebXR is not supported.');
+          }
+        });
+      } else {
+        console.log('WebXR is not supported.');
+      }
+
+      function startXR() {
+        navigator.xr.requestSession('immersive-vr', {
+          requiredFeatures: ['local-floor']
+        }).then((session) => {
+          session.addEventListener('end', onSessionEnd);
+
+          session.updateRenderState({
+            baseLayer: new XRWebGLLayer(session, renderer)
+          });
+
+          session.requestReferenceSpace('local-floor').then((refSpace) => {
+            renderer.xr.setReferenceSpaceType('local-floor');
+            renderer.xr.setSession(session);
+          });
+        }).catch((error) => {
+          console.log('Failed to start XR session:', error);
+        });
+      }
+
+      function onSessionEnd(event) {
+        renderer.xr.setSession(null);
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      // Animation loop
+      function animate() {
+        renderer.setAnimationLoop(() => {
+          update();
+          render();
+        });
+      }
+
+      function update() {
+        // Update old video texture
+        if (oldVideo.readyState === oldVideo.HAVE_ENOUGH_DATA) {
+          oldTexture.needsUpdate = true;
+        }
+
+        // Update camera video texture
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          texture.needsUpdate = true;
+        }
+
+        // Update controls
+        controls.update();
+        /*const cameraPosition = new THREE.Vector3();
+        camera.getWorldPosition(cameraPosition);
+        const cameraDirection = new THREE.Vector3();
+        camera.getWorldDirection(cameraDirection);
+        plane.position.copy(cameraPosition.clone().add(cameraDirection.clone().multiplyScalar(1))); // Изменение позиции плоскости под камерой
+        plane.scale.set(camera.position.z / 5, camera.position.z / 5, 1);*/
+      }
+
+      function render() {
+        renderer.render(scene, camera);
+      }
+
+      animate();
+    }
+    function onXRFrame(t, frame) {
+        let session = frame.session;
+        let refSpace = session.isImmersive ?
+                         xrImmersiveRefSpace :
+                         inlineViewerHelper.referenceSpace;
+        let pose = frame.getViewerPose(refSpace);
+
+        //renderer.render=sceneThree;
+        renderer.render(sceneThree, camera);
+
+        session.requestAnimationFrame(onXRFrame);
+
+        scene.updateInputSources(frame, refSpace);
+
+        scene.drawXRFrame(frame, pose);
+
+        //scene.endFrame();
+      }
+      function onRequestSession() {
+        let autoplay = autoplayCheckbox.checked;
+
+        let pending;
+
+        if (autoplay) {
+          pending = video.play().then(() => {
+            //video.pause();
+          });
+        }
+      }
+      function onEndSession(session) {
+        session.end();
+      }
+      /*function initXR() {
+        xrButton = new WebXRButton({onRequestSession: onRequestSession,
+          onEndSession: onEndSession});
+        document.querySelector('header').appendChild(xrButton.domElement);
+
+        if (navigator.xr) {
+          navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+            xrButton.enabled = supported;
+          });
+
+          navigator.xr.requestSession('inline').then(onSessionStarted);
+        }
+      }
+      // Start the XR application.
+      initXR();*/
+  </script>
+</body>
+</html>
